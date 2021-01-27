@@ -9,13 +9,15 @@
  */
 
 __kernel void POINT_bellman_multiexp(
-    __global POINT_affine *bases,
+    __global POINT_affine *bases, // n*
+    // 每个 thread 占用 bucket_len 个存储桶
+    // 总共 `num_groups` * `num_windows` * `bucket_len` 个存储桶
     __global POINT_projective *buckets,
-    __global POINT_projective *results,
-    __global EXPONENT *exps,
+    __global POINT_projective *results, // 1*
+    __global EXPONENT *exps, // n*
     uint n,
-    uint num_groups,
-    uint num_windows,
+    uint num_groups, // num_groups * num_windows ~= 2 * CUDA_CORES
+    uint num_windows, // num_windows = exp_bits / window_size = 256/10 = 26
     uint window_size) {
 
   // We have `num_windows` * `num_groups` threads per multiexp.
@@ -23,25 +25,38 @@ __kernel void POINT_bellman_multiexp(
   if(gid >= num_windows * num_groups) return;
 
   // We have (2^window_size - 1) buckets.
+  // 每个 thread 占用 bucket_len 个存储桶
   const uint bucket_len = ((1 << window_size) - 1);
 
   // Each thread has its own set of buckets in global memory.
+  // 指针计算，相当于移动n个单位
+  // 移动到当前 thread 的存储桶位置
   buckets += bucket_len * gid;
 
+  // 初始化当前 thread 的所有存储桶
   const POINT_projective local_zero = POINT_ZERO;
   for(uint i = 0; i < bucket_len; i++) buckets[i] = local_zero;
 
+  // 每个组分配的任务数量(7488999/334=22422)
   const uint len = (uint)ceil(n / (float)num_groups); // Num of elements in each group
 
   // This thread runs the multiexp algorithm on elements from `nstart` to `nened`
   // on the window [`bits`, `bits` + `w`)
+  // 当前 thread 进行 `nstart` to `nened` 的任务计算
+
+  // 每个组分配的任务数量 × 当前第?组（thread序号/每个组的thread） = 当前组的任务开始序号
   const uint nstart = len * (gid / num_windows);
+  // 当前组的任务开始序号 + 每个组分配的任务数量 = 当前组结束的任务序号
   const uint nend = min(nstart + len, n);
+  // 当前 thread 在当前组的位置 × 10
   const uint bits = (gid % num_windows) * window_size;
+  // EXPONENT_BITS/num_windows 不能整除时，最后一个的 window_size 是余数
   const ushort w = min((ushort)window_size, (ushort)(EXPONENT_BITS - bits));
 
   POINT_projective res = POINT_ZERO;
+  // 迭代每个分组的任务数量
   for(uint i = nstart; i < nend; i++) {
+    // ind 是当前任务在存储桶中的指针？
     uint ind = EXPONENT_get_bits(exps[i], bits, w);
 
     #ifdef NVIDIA
