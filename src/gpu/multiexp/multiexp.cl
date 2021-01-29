@@ -10,7 +10,7 @@
 
 __kernel void POINT_bellman_multiexp(
     __global POINT_affine *bases, // n*
-    // 每个 thread 占用 bucket_len 个存储桶
+    // 每个 thread 分配 bucket_len(2**10-1=1023) 个存储桶
     // 总共 `num_groups` * `num_windows` * `bucket_len` 个存储桶
     __global POINT_projective *buckets,
     __global POINT_projective *results, // 1*
@@ -25,12 +25,12 @@ __kernel void POINT_bellman_multiexp(
   if(gid >= num_windows * num_groups) return;
 
   // We have (2^window_size - 1) buckets.
-  // 每个 thread 占用 bucket_len 个存储桶
+  // 当前 thread 存储桶数量（1023）
   const uint bucket_len = ((1 << window_size) - 1);
 
   // Each thread has its own set of buckets in global memory.
   // 指针计算，相当于移动n个单位
-  // 移动到当前 thread 的存储桶位置
+  // 移动到当前 thread 的第一个存储桶位置
   buckets += bucket_len * gid;
 
   // 初始化当前 thread 的所有存储桶
@@ -48,13 +48,13 @@ __kernel void POINT_bellman_multiexp(
   const uint nstart = len * (gid / num_windows);
   // 当前组的任务开始序号 + 每个组分配的任务数量 = 当前组结束的任务序号
   const uint nend = min(nstart + len, n);
-  // 当前 thread 在当前组的位置 × 10
+  // 当前 thread 在当前组的位置 × 10，bits 的范围是 0-250
   const uint bits = (gid % num_windows) * window_size;
   // EXPONENT_BITS/num_windows 不能整除时，最后一个的 window_size 是余数
   const ushort w = min((ushort)window_size, (ushort)(EXPONENT_BITS - bits));
 
   POINT_projective res = POINT_ZERO;
-  // 迭代每个分组的任务数量
+  // 迭代每个分组的任务数量(7488999/334=22422)
   for(uint i = nstart; i < nend; i++) {
     // ind 是当前任务在存储桶中的指针？
     uint ind = EXPONENT_get_bits(exps[i], bits, w);

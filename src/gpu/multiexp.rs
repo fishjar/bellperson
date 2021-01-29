@@ -51,7 +51,7 @@ fn calc_num_groups(core_count: usize, num_windows: usize) -> usize {
 }
 
 fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
-    // window_size 其实就是每个thread对应的存储bit取对数？
+    // window_size 其实就是每个 thread 对应的存储bit取对自然数？
     // window_size = ln(n / num_groups)
     // num_windows = exp_bits / window_size
     // num_groups = 2 * core_count / num_windows = 2 * core_count * window_size / exp_bits
@@ -60,7 +60,9 @@ fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
     //
     // Thus we need to solve the following equation:
     // window_size + ln(window_size) = ln(exp_bits * n / (2 * core_count))
+    info!("n: {}, core_count: {}",n, core_count);
     let lower_bound = (((exp_bits * n) as f64) / ((2 * core_count) as f64)).ln();
+    info!("lower_bound: {}", lower_bound);
     for w in 0..MAX_WINDOW_SIZE {
         if (w as f64) + (w as f64).ln() > lower_bound {
             return w;
@@ -88,6 +90,7 @@ where
     let aff_size = std::mem::size_of::<E::G1Affine>() + std::mem::size_of::<E::G2Affine>();
     let exp_size = exp_size::<E>();
     let proj_size = std::mem::size_of::<E::G1>() + std::mem::size_of::<E::G2>();
+    info!("proj_size: {}, aff_size + exp_size : {}", proj_size, aff_size + exp_size);
     ((((mem as f64) * (1f64 - MEMORY_PADDING)) as usize)
         - (2 * core_count * ((1 << MAX_WINDOW_SIZE) + 1) * proj_size))
         / (aff_size + exp_size)
@@ -109,6 +112,7 @@ where
         let mem = d.memory();
         let max_n = calc_chunk_size::<E>(mem, core_count);
         let best_n = calc_best_chunk_size(MAX_WINDOW_SIZE, core_count, exp_bits);
+        info!("mem: {}, core_count: {}, MAX_WINDOW_SIZE: {}, exp_bits: {}, max_n: {}, best_n: {}", mem, core_count, MAX_WINDOW_SIZE, exp_bits, max_n, best_n);
         let n = std::cmp::min(max_n, best_n);
 
         Ok(SingleMultiexpKernel {
@@ -139,18 +143,20 @@ where
         let num_groups = calc_num_groups(self.core_count, num_windows);
         let bucket_len = 1 << window_size;
 
+        info!("exp_bits: {}, window_size: {}, num_windows: {}, num_groups: {}", exp_bits, window_size, num_windows, num_groups);
+
         // core_count:4352， n:7488999, exp_bits:256, window_size:10, num_windows:26, num_groups:334, bucket_len:1024
         // <G> size:104, <PrimeField> size:32, <Projective> size:144
         // mem1:778855896, mem2:239647968, mem3:1283457024, mem4:1253376
         // GPU mem need:2303214264byte, 2196Mbyte
-        // let size1 = std::mem::size_of::<G>();
-        // let size2 = std::mem::size_of::<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>();
-        // let size3 = std::mem::size_of::<<G as CurveAffine>::Projective>();
-        // let mem1 = size1 * n;
-        // let mem2 = size2 * n;
-        // let mem3 = size3 * 2 * self.core_count * bucket_len;
-        // let mem4 = size3 * 2 * self.core_count;
-        // info!("ZQ: GPU mem need: {}Mbyte", (mem1 + mem2 + mem3 + mem4)/(1024*1024));
+        let size1 = std::mem::size_of::<G>();
+        let size2 = std::mem::size_of::<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>();
+        let size3 = std::mem::size_of::<<G as CurveAffine>::Projective>();
+        let mem1 = size1 * n;
+        let mem2 = size2 * n;
+        let mem3 = size3 * 2 * self.core_count * bucket_len;
+        let mem4 = size3 * 2 * self.core_count;
+        info!("ZQ: GPU mem need: {}Mbyte", (mem1 + mem2 + mem3 + mem4)/(1024*1024));
 
         // Each group will have `num_windows` threads and as there are `num_groups` groups, there will
         // be `num_groups` * `num_windows` threads in total.

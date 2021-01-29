@@ -338,7 +338,9 @@ where
 
     let a_s = provers
         .iter_mut()
-        .map(|prover| {
+        .enumerate()
+        .map(|(i,prover)| {
+            info!("prover -> {}",i);
             let mut a =
                 EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.a, Vec::new()))?;
             let mut b =

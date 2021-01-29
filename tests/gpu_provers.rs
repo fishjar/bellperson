@@ -110,3 +110,51 @@ pub fn test_parallel_prover() {
 
     higher_thread.join().unwrap();
 }
+
+
+#[cfg(feature = "gpu")]
+#[test]
+pub fn test_parallel_prover2() {
+    use bellperson::bls::Bls12;
+    use bellperson::groth16::{
+        create_random_proof_batch, generate_random_parameters,
+        prepare_verifying_key, verify_proof,
+    };
+    use rand::thread_rng;
+    use std::time::{Instant};
+
+    let _ = env_logger::try_init();
+    let rng = &mut thread_rng();
+
+    println!("Initializing circuit...");
+    println!("Creating parameters...");
+
+    // Higher prio circuit
+    let c = DummyDemo {
+        interations: 10_000,
+    };
+
+    let params = generate_random_parameters::<Bls12, _, _>(c.clone(), rng).unwrap();
+
+    // Prepare the verification key (for proof verification)
+    let pvk = prepare_verifying_key(&params.vk);
+
+    let now = Instant::now();
+
+    let rng = &mut thread_rng();
+    let mut ds = Vec::new();
+    for _ in 0..1 {
+        ds.push(c.clone());
+    }
+    let proofs = create_random_proof_batch(ds, &params, rng).unwrap();
+    // let proofs = create_random_proof_batch(vec![c.clone()], &params, rng).unwrap();
+    let proof_higher = proofs.into_iter().next().unwrap();
+
+    assert!(verify_proof(&pvk, &proof_higher, &[]).unwrap());
+
+    println!(
+        "Higher proof gen finished in {}s and {}ms",
+        now.elapsed().as_secs(),
+        now.elapsed().subsec_nanos() / 1000000
+    );
+}
